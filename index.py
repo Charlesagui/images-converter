@@ -4,6 +4,8 @@ from PIL import Image, ImageTk
 import os
 import threading
 
+#esta es la rama de testeo
+
 
 class ImageConverterApp:
     def __init__(self, root):
