@@ -4,7 +4,7 @@ from PIL import Image, ImageTk
 import os
 import threading
 
-
+#RAMA MAIN!
 
 
 class ImageConverterApp:
