@@ -1,17 +1,20 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, UnidentifiedImageError
 import os
 import threading
 
-
-
+# Constants for image formats
+WEBP_FORMAT = "webp"
+JPG_FORMAT = "jpg"
+PNG_FORMAT = "png"
 
 class ImageConverterApp:
     def __init__(self, root):
         self.root = root
         self.root.title("Conversor de Imágenes")
         self.root.geometry("1200x600")
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
         self.selected_files = []
         self.optimize_var = tk.BooleanVar(value=True)
@@ -21,8 +24,8 @@ class ImageConverterApp:
         self.new_name_var = tk.StringVar(value="")
 
         self.preview_image_label = None
-        self.conversion_running = True
-
+        self.conversion_running = False  # Use a boolean flag to control conversion
+        self.conversion_thread = None # Store the conversion thread
         self.create_widgets()
 
     def __del__(self):
@@ -133,17 +136,17 @@ class ImageConverterApp:
         ttk.Button(
             convert_frame,
             text="Convertir a WebP",
-            command=lambda: self.start_conversion("webp"),
+            command=lambda: self.start_conversion(WEBP_FORMAT),
         ).pack(side=tk.LEFT, padx=5)
         ttk.Button(
             convert_frame,
             text="Convertir a JPG",
-            command=lambda: self.start_conversion("jpg"),
+            command=lambda: self.start_conversion(JPG_FORMAT),
         ).pack(side=tk.LEFT, padx=5)
         ttk.Button(
             convert_frame,
             text="Convertir a PNG",
-            command=lambda: self.start_conversion("png"),
+            command=lambda: self.start_conversion(PNG_FORMAT),
         ).pack(side=tk.LEFT, padx=5)
         ttk.Button(
             convert_frame, text="Cancelar Conversión", command=self.cancel_conversion
@@ -187,6 +190,7 @@ class ImageConverterApp:
         self.selected_files = []
         self.update_files_list()
         self.preview_image_label.config(image="", text="")
+        self.preview_image_label.image = None
 
     def update_files_list(self):
         """Actualiza la lista de archivos en el Listbox."""
@@ -197,8 +201,9 @@ class ImageConverterApp:
     def preview_selected(self, event=None):
         """Muestra la vista previa de la imagen seleccionada en el listbox."""
         if not self.selected_files:
-            self.preview_image_label.config(image="")
-            return
+             self.preview_image_label.config(image="", text="")
+             self.preview_image_label.image = None
+             return
 
         # Si no hay selección en el listbox, se muestra la primera imagen
         if event is None:
@@ -209,6 +214,9 @@ class ImageConverterApp:
                 return
             file_path = self.selected_files[index[0]]
 
+        self._update_preview_image(file_path)
+
+    def _update_preview_image(self, file_path):
         try:
             image = Image.open(file_path)
             width, height = image.size
@@ -225,23 +233,49 @@ class ImageConverterApp:
             self.preview_image_label.config(image=photo, text="")
             self.preview_image_label.image = photo
 
+        except FileNotFoundError:
+              self.preview_image_label.config(
+                text=f"Error al cargar la imagen: Archivo no encontrado.", image=""
+            )
+        except UnidentifiedImageError:
+             self.preview_image_label.config(
+                text=f"Error al cargar la imagen: Formato desconocido.", image=""
+            )
         except Exception as e:
             self.preview_image_label.config(
                 text=f"Error al cargar la imagen: {str(e)}", image=""
             )
 
-    def resize_image(self, image, target_width, target_height):
-        """Redimensiona la imagen si los valores de ancho y alto son mayores a 0."""
-        if target_width > 0 and target_height > 0:
-            return image.resize((target_width, target_height), Image.Resampling.LANCZOS)
-        return image
+    def _resize_image(self, image, target_width, target_height):
+        """Redimensiona la imagen manteniendo proporciones."""
+        if target_width <= 0 and target_height <= 0:
+            return image # no resize
+        original_width, original_height = image.size
+        if target_width > 0 and target_height == 0:
+                # Calcula el alto manteniendo la proporción
+                ratio = original_height / original_width
+                target_height = int(target_width * ratio)
+        elif target_height > 0 and target_width == 0:
+                # Calcula el ancho manteniendo la proporción
+                ratio = original_width / original_height
+                target_width = int(target_height * ratio)
+                
+        return image.resize((target_width, target_height), Image.Resampling.LANCZOS)
 
     def cancel_conversion(self):
         """Marca la bandera de cancelación para detener la conversión."""
         self.conversion_running = False
         self.status_label.config(text="Conversión cancelada")
+    
+    def on_close(self):
+        """Handles window close event."""
+        self.cancel_conversion()
+        if self.conversion_thread and self.conversion_thread.is_alive():
+            self.conversion_thread.join()
+        self.root.destroy()
 
-    def preserve_metadata(self, original_image, new_image):
+
+    def _preserve_metadata(self, original_image, new_image):
         """
         Intenta preservar los datos EXIF si existen.
         Retorna el exif (o None) para usarlo al guardar la imagen.
@@ -265,10 +299,10 @@ class ImageConverterApp:
             return
 
         self.conversion_running = True
-        thread = threading.Thread(
+        self.conversion_thread = threading.Thread(
             target=self.convert_files, args=(format_type, output_dir)
         )
-        thread.start()
+        self.conversion_thread.start()
 
     def convert_files(self, format_type, output_dir):
         """Procesa la conversión de archivos uno por uno en un hilo aparte."""
@@ -281,38 +315,48 @@ class ImageConverterApp:
                 break
 
             try:
-                progress = (i + 1) / total_files * 100
-                self.progress_var.set(progress)
-                self.status_label.config(
-                    text=f"Convirtiendo: {os.path.basename(file_path)}"
-                )
-                self.root.update_idletasks()
-
+                self.root.after(0, self.update_status, f"Convirtiendo: {os.path.basename(file_path)}")
+                self.root.after(0, self.update_progress, (i+1) / total_files * 100)
                 self.convert_to_format(file_path, output_dir, format_type)
                 converted += 1
 
             except Exception as e:
                 errors.append(f"Error en {os.path.basename(file_path)}: {str(e)}")
 
-        self.show_conversion_result(converted, total_files, errors)
+        self.root.after(0, self.show_conversion_result, converted, total_files, errors)
+        self.root.after(0, self.reset_progress)
 
-        # Resetea la barra de progreso y el estado
-        self.progress_var.set(0)
         if self.conversion_running:
-            self.status_label.config(text="Listo")
+            self.root.after(0, self.update_status, "Listo")
+        self.conversion_running = False
+
+    def update_progress(self, progress):
+         self.progress_var.set(progress)
+
+    def update_status(self, text):
+         self.status_label.config(text=text)
+
+    def reset_progress(self):
+        self.progress_var.set(0)
 
     def convert_to_format(self, file_path, output_dir, format_type):
         """Convierte un archivo de imagen a un formato específico."""
-        image = Image.open(file_path)
+        try:
+            image = Image.open(file_path)
+            image = self._prepare_image(image, format_type)
+            output_path = self._generate_output_path(file_path, output_dir, format_type)
+            self._save_image(image, output_path, format_type)
+        except (FileNotFoundError, OSError, UnidentifiedImageError) as e:
+           raise e
+        except Exception as e:
+             raise Exception(f"Error during conversion: {str(e)}")
 
-        # Para JPG, convertir a RGB si la imagen es RGBA o P
-        if format_type != "png" and image.mode in ("RGBA", "P"):
+    def _prepare_image(self, image, format_type):
+        """Prepares the image for conversion (mode conversion, resizing)."""
+        if format_type != PNG_FORMAT and image.mode in ("RGBA", "P"):
             image = image.convert("RGB")
 
-        # Redimensionar si está activado
         if self.resize_var.get():
-            original_width, original_height = image.size
-
             width_str = self.width_var.get().replace("px", "").strip()
             height_str = self.height_var.get().replace("px", "").strip()
 
@@ -320,51 +364,34 @@ class ImageConverterApp:
                 target_width = int(width_str) if width_str.isdigit() else 0
                 target_height = int(height_str) if height_str.isdigit() else 0
             except ValueError:
-                messagebox.showerror(
-                    "Error",
-                    "Los valores de ancho y alto deben ser números enteros mayores que 0.",
-                )
-                return
+                raise ValueError("Los valores de ancho y alto deben ser números enteros mayores que 0.")
+            image = self._resize_image(image, target_width, target_height)
 
-            # Mantener proporciones
-            if target_width > 0 and target_height == 0:
-                # Calcula el alto manteniendo la proporción
-                ratio = original_height / original_width
-                target_height = int(target_width * ratio)
-            elif target_height > 0 and target_width == 0:
-                # Calcula el ancho manteniendo la proporción
-                ratio = original_width / original_height
-                target_width = int(target_height * ratio)
-            # Si ambos > 0, se fuerza ese tamaño (podría deformar)
-            # Si ambos == 0, no se redimensiona
+        return image
 
-            image = self.resize_image(image, target_width, target_height)
+    def _generate_output_path(self, file_path, output_dir, format_type):
+         """Generates the output file path."""
+         new_name = self.new_name_var.get().strip()
+         if new_name:
+              output_filename = new_name + f".{format_type}"
+         else:
+              output_filename = (
+                 os.path.splitext(os.path.basename(file_path))[0] + f".{format_type}"
+             )
+         return os.path.join(output_dir, output_filename)
 
-        # Determina el nombre de salida
-        new_name = self.new_name_var.get().strip()
-        if new_name:
-            output_filename = new_name + f".{format_type}"
-        else:
-            output_filename = (
-                os.path.splitext(os.path.basename(file_path))[0] + f".{format_type}"
-            )
-
-        output_path = os.path.join(output_dir, output_filename)
-
-        # Opciones de guardado
+    def _save_image(self, image, output_path, format_type):
+        """Saves the converted image."""
         save_options = {
             "quality": 100,
             "optimize": self.optimize_var.get(),
         }
-
-        # Preserva metadatos EXIF (si existen)
-        exif_data = self.preserve_metadata(image, image)
-
-        # Guardado final
+        exif_data = self._preserve_metadata(image, image)
         if exif_data:
             image.save(output_path, format_type.upper(), exif=exif_data, **save_options)
         else:
             image.save(output_path, format_type.upper(), **save_options)
+
 
     def show_conversion_result(self, converted, total, errors):
         """Muestra el resultado final de la conversión en un mensaje."""
@@ -376,7 +403,6 @@ class ImageConverterApp:
         else:
             message += "No se encontraron errores."
             messagebox.showinfo("Resultado de la conversión", message)
-
 
 if __name__ == "__main__":
     root = tk.Tk()
