@@ -4,7 +4,13 @@ from PIL import Image, ImageTk, UnidentifiedImageError
 import os
 import threading
 
-# rama mainnnnnnnnnnnnnnnnnnnnnnnnnnnn
+#RAMA TESTEEEEEOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
+
+# Constants for image formats
+WEBP_FORMAT = "webp"
+JPG_FORMAT = "jpg"
+PNG_FORMAT = "png"
+
 class ImageConverterApp:
     """A simple image converter application using Tkinter."""
 
