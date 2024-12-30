@@ -4,7 +4,7 @@ from PIL import Image, ImageTk, UnidentifiedImageError
 import os
 import threading
 
-#RAMA TESTEEEEEOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO
+
 
 # Constants for image formats
 WEBP_FORMAT = "webp"
