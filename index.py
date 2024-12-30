@@ -5,10 +5,13 @@ import os
 import threading
 
 
-
-
 class ImageConverterApp:
     """A simple image converter application using Tkinter."""
+
+    WEBP_FORMAT = "webp"
+    JPG_FORMAT = "jpg"
+    PNG_FORMAT = "png"
+
     def __init__(self, root):
         """Initializes the ImageConverterApp."""
         self.root = root
@@ -25,7 +28,7 @@ class ImageConverterApp:
 
         self.preview_image_label = None
         self.conversion_running = False  # Use a boolean flag to control conversion
-        self.conversion_thread = None # Store the conversion thread
+        self.conversion_thread = None  # Store the conversion thread
         self.create_widgets()
 
     def __del__(self):
@@ -137,17 +140,17 @@ class ImageConverterApp:
         ttk.Button(
             convert_frame,
             text="Convertir a WebP",
-            command=lambda: self.start_conversion(WEBP_FORMAT),
+            command=lambda: self.start_conversion(ImageConverterApp.WEBP_FORMAT),
         ).pack(side=tk.LEFT, padx=5)
         ttk.Button(
             convert_frame,
             text="Convertir a JPG",
-            command=lambda: self.start_conversion(JPG_FORMAT),
+            command=lambda: self.start_conversion(ImageConverterApp.JPG_FORMAT),
         ).pack(side=tk.LEFT, padx=5)
         ttk.Button(
             convert_frame,
             text="Convertir a PNG",
-            command=lambda: self.start_conversion(PNG_FORMAT),
+            command=lambda: self.start_conversion(ImageConverterApp.PNG_FORMAT),
         ).pack(side=tk.LEFT, padx=5)
         ttk.Button(
             convert_frame, text="Cancelar Conversión", command=self.cancel_conversion
@@ -249,19 +252,18 @@ class ImageConverterApp:
             )
             print(f"Error previewing image: {e}")
 
-
     def _resize_image(self, image, target_width, target_height):
         """
         Redimensiona la imagen manteniendo proporciones cuando corresponda.
-        
+
         Args:
             image: Imagen PIL a redimensionar
             target_width: Ancho objetivo. Si es 0 o negativo, se calculará basado en el alto
             target_height: Alto objetivo. Si es 0 o negativo, se calculará basado en el ancho
-            
+
         Returns:
             Image: Imagen redimensionada
-            
+
         Raises:
             ValueError: Si ambas dimensiones son inválidas o si el cálculo resulta en dimensiones inválidas
         """
@@ -269,13 +271,13 @@ class ImageConverterApp:
             # Validar entrada
             if target_width <= 0 and target_height <= 0:
                 return image
-                
+
             original_width, original_height = image.size
-            
+
             # Si una dimensión es negativa, tratarla como 0
             target_width = max(0, target_width)
             target_height = max(0, target_height)
-            
+
             # Calcular dimensión faltante manteniendo proporción
             if target_width > 0 and target_height == 0:
                 ratio = original_height / original_width
@@ -283,16 +285,17 @@ class ImageConverterApp:
             elif target_height > 0 and target_width == 0:
                 ratio = original_width / original_height
                 target_width = int(target_height * ratio)
-                
+
             # Validar dimensiones finales
             if target_width <= 0 or target_height <= 0:
-                raise ValueError(f"Dimensiones inválidas calculadas: {target_width}x{target_height}")
-                
+                raise ValueError(
+                    f"Dimensiones inválidas calculadas: {target_width}x{target_height}"
+                )
+
             return image.resize(
-                (target_width, target_height),
-                Image.Resampling.LANCZOS
+                (target_width, target_height), Image.Resampling.LANCZOS
             )
-            
+
         except Exception as e:
             raise ValueError(f"Error al redimensionar imagen: {str(e)}")
 
@@ -300,14 +303,13 @@ class ImageConverterApp:
         """Sets the conversion_running flag to False to stop conversion."""
         self.conversion_running = False
         self.status_label.config(text="Conversión cancelada")
-    
+
     def on_close(self):
         """Handles window close event."""
         self.cancel_conversion()
         if self.conversion_thread and self.conversion_thread.is_alive():
             self.conversion_thread.join()
         self.root.destroy()
-
 
     def _preserve_metadata(self, original_image, new_image):
         """Preserves EXIF metadata from original image."""
@@ -346,8 +348,10 @@ class ImageConverterApp:
                 break
 
             try:
-                self.root.after(0, self.update_status, f"Convirtiendo: {os.path.basename(file_path)}")
-                self.root.after(0, self.update_progress, (i+1) / total_files * 100)
+                self.root.after(
+                    0, self.update_status, f"Convirtiendo: {os.path.basename(file_path)}"
+                )
+                self.root.after(0, self.update_progress, (i + 1) / total_files * 100)
                 self.convert_to_format(file_path, output_dir, format_type)
                 converted += 1
 
@@ -381,13 +385,13 @@ class ImageConverterApp:
             output_path = self._generate_output_path(file_path, output_dir, format_type)
             self._save_image(image, output_path, format_type)
         except (FileNotFoundError, OSError, UnidentifiedImageError) as e:
-         raise e
+            raise e
         except Exception as e:
             raise Exception(f"Error during conversion: {str(e)}")
 
     def _prepare_image(self, image, format_type):
         """Prepares the image for conversion (mode conversion, resizing)."""
-        if format_type != PNG_FORMAT and image.mode in ("RGBA", "P"):
+        if format_type != ImageConverterApp.PNG_FORMAT and image.mode in ("RGBA", "P"):
             image = image.convert("RGB")
 
         if self.resize_var.get():
@@ -398,9 +402,13 @@ class ImageConverterApp:
                 target_width = int(width_str) if width_str.isdigit() else 0
                 target_height = int(height_str) if height_str.isdigit() else 0
             except ValueError:
-                raise ValueError("Los valores de ancho y alto deben ser números enteros mayores que 0.")
+                raise ValueError(
+                    "Los valores de ancho y alto deben ser números enteros mayores que 0."
+                )
             if target_width < 0 or target_height < 0:
-                raise ValueError("Los valores de ancho y alto deben ser números enteros mayores o iguales a 0.")
+                raise ValueError(
+                    "Los valores de ancho y alto deben ser números enteros mayores o iguales a 0."
+                )
             image = self._resize_image(image, target_width, target_height)
 
         return image
@@ -428,7 +436,6 @@ class ImageConverterApp:
         else:
             image.save(output_path, format_type.upper(), **save_options)
 
-
     def show_conversion_result(self, converted, total, errors):
         """Displays the conversion result in a message box."""
         message = f"Se convirtieron {converted} de {total} imágenes.\n\n"
@@ -439,6 +446,7 @@ class ImageConverterApp:
         else:
             message += "No se encontraron errores."
             messagebox.showinfo("Resultado de la conversión", message)
+
 
 if __name__ == "__main__":
     root = tk.Tk()
